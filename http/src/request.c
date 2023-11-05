@@ -138,12 +138,11 @@ char *http_request_to_string(http_request_t *request)
 {
 	char	   *message_string  = http_message_to_string(&request->message);
 	char const *method_string   = http_method_to_string(request->method);
-	size_t	    required_length = strlen(message_string) + strlen(request->path) +
-				 strlen(request->http_version) + strlen(method_string);
+	size_t	    required_length = strlen(method_string) + 1 + strlen(request->path) + 1 +
+				 strlen(request->http_version) + 2 + strlen(message_string);
 	char *out = calloc(required_length + 1, sizeof(char));
-	snprintf(out, required_length, "%s %s %s\r\n", method_string, request->path,
-		 request->http_version);
-	strcat(out, message_string);
+	snprintf(out, required_length + 1, "%s %s %s\r\n%s", method_string, request->path,
+		 request->http_version, message_string);
 	free(message_string);
 	return out;
 }

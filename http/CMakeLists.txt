@@ -3,12 +3,15 @@ set(HEADERS
 	include/http/config.h
 	include/http/header.h
 	include/http/message.h
+	include/http/request.h
+	include/http/response.h
 )
 
 set(SOURCES
 	src/header.c
 	src/message.c
 	src/request.c
+	src/response.c
 )
 
 add_library(http ${HEADERS} ${SOURCES})

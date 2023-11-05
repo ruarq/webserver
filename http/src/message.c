@@ -149,15 +149,16 @@ bool http_message_from_string(http_message_t *message, char const *str)
 
 char *http_message_to_string(http_message_t *message)
 {
-	char   buf[HTTP_HEADER_SIZE + 2];
+	char   buf[HTTP_HEADER_SIZE];
 	char  *out;
-	size_t buffer_size =
-		message->header_count * (HTTP_HEADER_SIZE + 2) + 4 + message->content_length + 1;
+	size_t required_length =
+		message->header_count * (HTTP_HEADER_SIZE + 2) + 4 + message->content_length;
 	size_t i;
 
-	out = calloc(buffer_size, sizeof(char));
+	out = calloc(required_length + 1, sizeof(char));
 	for (i = 0; i < message->header_count; ++i) {
-		sprintf(buf, "%s: %s\r\n", message->header[i].key, message->header[i].value);
+		snprintf(buf, HTTP_HEADER_SIZE, "%s: %s\r\n", message->header[i].key,
+			 message->header[i].value);
 		strcat(out, buf);
 	}
 
