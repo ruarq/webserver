@@ -1,8 +1,10 @@
 set(HEADERS
+	src/webserver.h
 )
 
 set(SOURCES
 	src/main.c
+	src/webserver.c
 )
 
 add_executable(webserver ${HEADERS} ${SOURCES})
