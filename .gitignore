@@ -1,0 +1,6 @@
+.DS_Store
+/build
+Makefile
+__pycache__
+/.cache
+/Testing
