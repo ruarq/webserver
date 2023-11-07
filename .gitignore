@@ -3,3 +3,5 @@
 Makefile
 __pycache__
 /.cache
+/Testing
+/.pytest_cache
