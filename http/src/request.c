@@ -1,148 +1,94 @@
 #include "request.h"
 
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <stdlib.h>
+#include <assert.h>
 
-#include "config.h"
+#include "parser.h"
 
-http_method_t http_method_from_string(char const *str)
-{
-	if (strcmp(str, HTTP_METHOD_GET_STRING) == 0) {
-		return http_method_get;
-	} else if (strcmp(str, HTTP_METHOD_PUT_STRING) == 0) {
-		return http_method_put;
-	} else if (strcmp(str, HTTP_METHOD_DELETE_STRING) == 0) {
-		return http_method_delete;
-	}
-
-	return http_method_undef;
-}
+char const *http_method_to_string_map[] = {
+	[http_method_connect] = HTTP_METHOD_CONNECT_STRING,
+	[http_method_delete]  = HTTP_METHOD_DELETE_STRING,
+	[http_method_head]    = HTTP_METHOD_HEAD_STRING,
+	[http_method_get]     = HTTP_METHOD_GET_STRING,
+	[http_method_options] = HTTP_METHOD_OPTIONS_STRING,
+	[http_method_patch]   = HTTP_METHOD_PATCH_STRING,
+	[http_method_post]    = HTTP_METHOD_POST_STRING,
+	[http_method_put]     = HTTP_METHOD_PUT_STRING,
+	[http_method_trace]   = HTTP_METHOD_TRACE_STRING,
+};
 
 char const *http_method_to_string(http_method_t method)
 {
-	switch (method) {
-	case http_method_get:
-		return HTTP_METHOD_GET_STRING;
-
-	case http_method_put:
-		return HTTP_METHOD_PUT_STRING;
-
-	case http_method_delete:
-		return HTTP_METHOD_DELETE_STRING;
-
-	default:
-	case http_method_undef:
-		return "UNDEF";
+	if (method < 0 || method >= http_method_count) {
+		return NULL;
 	}
+
+	return http_method_to_string_map[method];
 }
 
 void http_request_init(http_request_t *request)
 {
-	http_message_init(&request->message);
-	request->method	      = http_method_undef;
-	request->path	      = NULL;
-	request->http_version = NULL;
+	assert(request);
+
+	http_message_init(request);
+	request->path = NULL;
 }
 
 void http_request_deinit(http_request_t *request)
 {
-	http_message_deinit(&request->message);
+	http_message_deinit(request);
 	free(request->path);
-	free(request->http_version);
 }
 
-void http_request_set_path(http_request_t *request, char const *path)
+void http_request_path_set(http_request_t *request, char const *path)
 {
-	size_t path_len = strlen(path);
+	assert(request && path);
+
+	http_request_path_set_n(request, path, strlen(path));
+}
+
+void http_request_path_set_n(http_request_t *request, char const *path, size_t n)
+{
+	assert(request && path);
 
 	free(request->path);
-	request->path = calloc(path_len + 1, sizeof(char));
-	strncpy(request->path, path, path_len);
+	request->path = calloc(n + 1, sizeof(char));
+	strncpy(request->path, path, n);
 }
 
-void http_request_set_http_version(http_request_t *request, char const *http_version)
+int http_request_from_string(http_request_t *request, char const *str)
 {
-	size_t http_version_len = strlen(http_version);
+	assert(request && str);
 
-	free(request->http_version);
-	request->http_version = calloc(http_version_len + 1, sizeof(char));
-	strncpy(request->http_version, http_version, http_version_len);
-}
+	http_parser_t	     parser;
+	http_parser_result_t result;
 
-bool http_request_from_string(http_request_t *request, char const *str)
-{
-	size_t	    i = 0;
-	char	    buf[HTTP_REQUEST_BUFFER_SIZE];
-	char const *method;
-	char const *path;
-	char const *http_version;
+	http_parser_init(&parser);
+	parser.source	  = str;
+	parser.source_len = strlen(str);
+	result		  = http_parser_parse_request(&parser, request);
 
-	method = buf;
-	while (*str != ' ') {
-		if (*str == '\0') {
-			return false;
-		}
-
-		buf[i++] = *str++;
-	}
-	++str;
-	buf[i++] = '\0';
-
-	path = buf + i;
-	while (*str != ' ') {
-		if (*str == '\0') {
-			return false;
-		}
-
-		buf[i++] = *str++;
-	}
-
-	++str;
-	buf[i++] = '\0';
-
-	http_version = buf + i;
-	while (strncmp(str, "\r\n", 2) != 0) {
-		if (*str == '\0') {
-			return false;
-		}
-
-		buf[i++] = *str++;
-	}
-	str += 2;
-	buf[i++] = '\0';
-
-	if (!http_message_from_string(&request->message, str)) {
-		return false;
-	}
-
-	if (strlen(method) == 0 || strlen(path) == 0 || strlen(http_version) == 0) {
-		return false;
-	}
-
-	if (strcmp(HTTP_PROTOCOL_VERSION, http_version) != 0) {
-		return false;
-	}
-
-	request->method = http_method_from_string(method);
-	if (request->method == http_method_undef) {
-		return false;
-	}
-
-	http_request_set_path(request, path);
-	http_request_set_http_version(request, http_version);
-	return true;
+	return result;
 }
 
 char *http_request_to_string(http_request_t *request)
 {
-	char	   *message_string  = http_message_to_string(&request->message);
+	assert(request);
+
 	char const *method_string   = http_method_to_string(request->method);
+	char	   *version_string  = http_version_to_string(&request->message.version);
+	char	   *message_string  = http_message_to_string(&request->message);
 	size_t	    required_length = strlen(method_string) + 1 + strlen(request->path) + 1 +
-				 strlen(request->http_version) + 2 + strlen(message_string);
-	char *out = calloc(required_length + 1, sizeof(char));
-	snprintf(out, required_length + 1, "%s %s %s\r\n%s", method_string, request->path,
-		 request->http_version, message_string);
+				 strlen(version_string) + 2 + strlen(message_string);
+	char *buf = calloc(required_length + 1, sizeof(char));
+
+	snprintf(buf, required_length + 1, "%s %s %s\r\n%s", method_string, request->path,
+		 version_string, message_string);
+
+	free(version_string);
 	free(message_string);
-	return out;
+
+	return buf;
 }

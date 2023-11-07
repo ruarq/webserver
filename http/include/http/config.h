@@ -1,6 +1,7 @@
 #ifndef HTTP_CONFIG_H
 #define HTTP_CONFIG_H
 
-#define HTTP_PROTOCOL_VERSION "HTTP/1.1"
+#define HTTP_VERSION_MAJOR 1
+#define HTTP_VERSION_MINOR 1
 
 #endif

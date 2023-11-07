@@ -3,53 +3,108 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
 
-void http_message_init(http_message_t *message)
+#include "parser.h"
+#include "config.h"
+
+static void _http_message_init(http_message_t *message)
 {
+	assert(message);
+
 	message->header_count	= 0;
 	message->content	= NULL;
 	message->content_length = 0;
+
+	http_version_init(&message->version, HTTP_VERSION_MAJOR, HTTP_VERSION_MINOR);
 }
 
-void http_message_deinit(http_message_t *message)
+void http_message_init(void *message)
 {
+	_http_message_init((http_message_t *)message);
+}
+
+static void _http_message_deinit(http_message_t *message)
+{
+	assert(message);
+
 	size_t i;
 
 	for (i = 0; i < message->header_count; ++i) {
 		http_header_deinit(&message->header[i]);
 	}
-
 	free(message->content);
 }
 
-bool http_message_header_set(http_message_t *message, char const *key, char const *value)
+void http_message_deinit(void *message)
 {
-	http_header_t *header;
-	size_t	       i;
+	_http_message_deinit((http_message_t *)message);
+}
 
-	if (message->header_count >= HTTP_MESSAGE_HEADER_COUNT) {
-		return false;
-	}
+static void _http_message_content_set(http_message_t *message, char const *str)
+{
+	assert(message && str);
+
+	char buf[sizeof(size_t) * 8 + 1];
+
+	free(message->content);
+	message->content_length = strlen(str);
+	message->content	= calloc(message->content_length, sizeof(char));
+	memcpy(message->content, str, message->content_length);
+
+	snprintf(buf, sizeof(size_t) * 8 + 1, "%zu", message->content_length);
+	http_message_header_set(message, HTTP_CONTENT_LENGTH, buf);
+}
+
+void http_message_content_set(void *message, char const *str)
+{
+	_http_message_content_set((http_message_t *)message, str);
+}
+
+static bool _http_message_header_set_n(http_message_t *message, char const *key, size_t key_n,
+				       char const *value, size_t value_n)
+{
+	assert(message && key && value);
+
+	http_header_t header;
+	size_t	      i;
 
 	for (i = 0; i < message->header_count; ++i) {
-		if (strcmp(message->header[i].key, key) == 0) {
-			http_header_set_value(&message->header[i], value);
+		if (strcasecmp(message->header[i].key, key) == 0) {
+			http_header_value_set(&message->header[i], value);
 			return true;
 		}
 	}
 
-	header = &message->header[message->header_count++];
-	http_header_init(header);
-	http_header_set(header, key, value);
+	if (message->header_count >= HTTP_MESSAGE_HEADER_COUNT_MAX) {
+		return false;
+	}
+
+	http_header_init(&header);
+	http_header_set_n(&header, key, key_n, value, value_n);
+	message->header[message->header_count++] = header;
 	return true;
 }
 
-char const *http_message_header_get(http_message_t *message, char const *key)
+bool http_message_header_set(void *message, char const *key, char const *value)
 {
+	return http_message_header_set_n(message, key, strlen(key), value, strlen(value));
+}
+
+bool http_message_header_set_n(void *message, char const *key, size_t key_n, char const *value,
+			       size_t value_n)
+{
+	return _http_message_header_set_n((http_message_t *)message, key, key_n, value, value_n);
+}
+
+static char const *_http_message_header_get(http_message_t *message, char const *key)
+{
+	assert(message && key);
+
 	size_t i;
 
 	for (i = 0; i < message->header_count; ++i) {
-		if (strcmp(message->header[i].key, key) == 0) {
+		if (strcasecmp(message->header[i].key, key) == 0) {
 			return message->header[i].value;
 		}
 	}
@@ -57,113 +112,95 @@ char const *http_message_header_get(http_message_t *message, char const *key)
 	return NULL;
 }
 
-bool http_message_content_set(http_message_t *message, char const *content_type,
-			      char const *content)
+char const *http_message_header_get(void *message, char const *key)
 {
-	free(message->content);
-	message->content_length = strlen(content);
-	message->content	= calloc(message->content_length, sizeof(char));
-	strncpy(message->content, content, message->content_length);
-
-	// https://www.ibm.com/docs/en/zos/2.3.0?topic=functions-ultoa-convert-unsigned-long-into-string
-	char buf[sizeof(size_t) * 8 + 1];
-	sprintf(buf, "%lu", message->content_length);
-	printf("Setting: %s\n", buf);
-
-	bool result;
-	result = http_message_header_set(message, HTTP_CONTENT_TYPE, content_type);
-	result = result && http_message_header_set(message, HTTP_CONTENT_LENGTH, buf);
-	return result;
+	return _http_message_header_get((http_message_t *)message, key);
 }
 
-bool http_message_from_string(http_message_t *message, char const *str)
+static bool _http_message_header_remove(http_message_t *message, char const *key)
 {
-	size_t	    i;
-	char	    buf[HTTP_HEADER_SIZE];
-	char const *key;
-	char const *value;
-	char const *content_type;
-	char const *content_length;
+	assert(message && key);
 
-	http_message_deinit(message);
-	http_message_init(message);
+	size_t i;
 
-	while (strncmp(str, "\r\n", 2) != 0) {
-		if (*str == '\0') {
-			return false;
-		}
-
-		i   = 0;
-		key = buf;
-		while (strncmp(str, ": ", 2) != 0) {
-			if (*str == '\0' || i >= HTTP_HEADER_SIZE) {
-				return false;
-			}
-			buf[i++] = *str++;
-		}
-
-		buf[i++] = '\0';
-		str += 2;
-
-		value = buf + i;
-
-		while (strncmp(str, "\r\n", 2) != 0) {
-			if (*str == '\0' || i >= HTTP_HEADER_SIZE) {
-				return false;
-			}
-			buf[i++] = *str++;
-		}
-
-		buf[i++] = '\0';
-		str += 2;
-
-		if (!http_message_header_set(message, key, value)) {
-			return false;
-		}
-	}
-
-	str += 2;
-	if (*str == '\0') {
+	if (message->header_count == 0) {
+		return false;
+	} /* else if (message->header_count == 1) {
+		--message->header_count;
 		return true;
+	} */
+
+	for (i = 0; i < message->header_count; ++i) {
+		if (strcasecmp(message->header[i].key, key) == 0) {
+			break;
+		}
 	}
 
-	content_type = http_message_header_get(message, HTTP_CONTENT_TYPE);
-	if (content_type == NULL) {
+	if (i == message->header_count) {
 		return false;
 	}
 
-	content_length = http_message_header_get(message, HTTP_CONTENT_LENGTH);
-	if (content_length == NULL) {
-		return false;
-	}
-
-	message->content_length = atoi(content_length);
-	message->content	= calloc(message->content_length + 1, sizeof(char));
-
-	for (i = 0; i < message->content_length; ++i) {
-		message->content[i] = *str++;
-	}
-
+	--message->header_count;
+	message->header[i] = message->header[message->header_count];
 	return true;
+}
+
+bool http_message_header_remove(void *message, char const *key)
+{
+	return _http_message_header_remove((http_message_t *)message, key);
+}
+
+int http_message_from_string(http_message_t *message, char const *str)
+{
+	assert(message && str);
+
+	http_parser_t parser;
+
+	http_parser_init(&parser);
+	parser.source	  = str;
+	parser.source_len = strlen(str);
+	return http_parser_parse_message(&parser, message);
 }
 
 char *http_message_to_string(http_message_t *message)
 {
-	char   buf[HTTP_HEADER_SIZE];
-	char  *out;
-	size_t required_length =
-		message->header_count * (HTTP_HEADER_SIZE + 2) + 4 + message->content_length;
-	size_t i;
+	assert(message);
 
-	out = calloc(required_length + 1, sizeof(char));
+	char *buf;
+	/* key: value\r\n */
+	/* \r\n<content>\0 */
+	char  *header_strings[HTTP_MESSAGE_HEADER_COUNT_MAX];
+	size_t required_len = 0;
+	size_t i;
+	size_t header_len;
+	size_t key_len;
+	size_t value_len;
+
 	for (i = 0; i < message->header_count; ++i) {
-		snprintf(buf, HTTP_HEADER_SIZE, "%s: %s\r\n", message->header[i].key,
+		key_len	  = strlen(message->header[i].key);
+		value_len = strlen(message->header[i].value);
+
+		header_len	  = key_len + 2 + value_len + 2;
+		header_strings[i] = calloc(header_len + 1, sizeof(char));
+		snprintf(header_strings[i], header_len + 1, "%s: %s\r\n", message->header[i].key,
 			 message->header[i].value);
-		strcat(out, buf);
+		required_len += header_len;
 	}
 
-	strcat(out, "\r\n");
-	strncat(out, message->content, message->content_length);
+	required_len += 2 + message->content_length;
 
-	return out;
+	buf = calloc(required_len + 1, sizeof(char));
+
+	for (i = 0; i < message->header_count; ++i) {
+		strcat(buf, header_strings[i]);
+		free(header_strings[i]);
+	}
+
+	strcat(buf, "\r\n");
+
+	if (message->content) {
+		strncat(buf, (char const *)message->content, message->content_length);
+	}
+
+	return buf;
 }
