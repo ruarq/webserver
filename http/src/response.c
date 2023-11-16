@@ -140,3 +140,34 @@ char *http_response_to_string(http_response_t *response)
 
 	return buf;
 }
+
+int http_responses_from_string(http_response_t *responses, size_t *n, char const *str)
+{
+	http_parser_t	     parser;
+	http_parser_result_t result;
+
+	http_parser_init(&parser);
+	parser.source	  = str;
+	parser.source_len = strlen(str);
+	result		  = http_parser_parse_responses(&parser, responses, n);
+
+	return result;
+}
+
+char *http_responses_to_string(http_response_t *responses, size_t n)
+{
+	char  *single_response_buf;
+	char  *buf	       = NULL;
+	size_t required_length = 0;
+	size_t i;
+
+	for (i = 0; i < n; ++i) {
+		single_response_buf = http_response_to_string(&responses[i]);
+		required_length += strlen(single_response_buf);
+		buf = realloc(buf, required_length + 1);
+		strcat(buf, single_response_buf);
+		free(single_response_buf);
+	}
+
+	return buf;
+}

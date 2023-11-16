@@ -151,4 +151,7 @@ void http_response_deinit(http_response_t *response);
 int   http_response_from_string(http_response_t *response, char const *str);
 char *http_response_to_string(http_response_t *response);
 
+int   http_responses_from_string(http_response_t *responses, size_t *n, char const *str);
+char *http_responses_to_string(http_response_t *responses, size_t n);
+
 #endif

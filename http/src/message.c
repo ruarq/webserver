@@ -41,16 +41,16 @@ void http_message_deinit(void *message)
 	_http_message_deinit((http_message_t *)message);
 }
 
-static void _http_message_content_set(http_message_t *message, char const *str)
+static void _http_message_content_set_n(http_message_t *message, uint8_t const *data, size_t n)
 {
-	assert(message && str);
+	assert(message && data);
 
 	char buf[sizeof(size_t) * 8 + 1];
 
 	free(message->content);
-	message->content_length = strlen(str);
+	message->content_length = n;
 	message->content	= calloc(message->content_length, sizeof(char));
-	memcpy(message->content, str, message->content_length);
+	memcpy(message->content, data, message->content_length);
 
 	snprintf(buf, sizeof(size_t) * 8 + 1, "%zu", message->content_length);
 	http_message_header_set(message, HTTP_CONTENT_LENGTH, buf);
@@ -58,7 +58,12 @@ static void _http_message_content_set(http_message_t *message, char const *str)
 
 void http_message_content_set(void *message, char const *str)
 {
-	_http_message_content_set((http_message_t *)message, str);
+	http_message_content_set_n(message, (uint8_t const *)str, strlen(str));
+}
+
+void http_message_content_set_n(void *message, uint8_t const *data, size_t n)
+{
+	_http_message_content_set_n((http_message_t *)message, data, n);
 }
 
 static bool _http_message_header_set_n(http_message_t *message, char const *key, size_t key_n,
@@ -166,9 +171,7 @@ char *http_message_to_string(http_message_t *message)
 {
 	assert(message);
 
-	char *buf;
-	/* key: value\r\n */
-	/* \r\n<content>\0 */
+	char  *buf;
 	char  *header_strings[HTTP_MESSAGE_HEADER_COUNT_MAX];
 	size_t required_len = 0;
 	size_t i;

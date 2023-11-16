@@ -43,4 +43,6 @@ void http_request_path_set_n(http_request_t *request, char const *path, size_t n
 int   http_request_from_string(http_request_t *request, char const *str);
 char *http_request_to_string(http_request_t *request);
 
+int http_requests_from_string(http_request_t *requests, size_t *n, char const **str);
+
 #endif

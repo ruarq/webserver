@@ -69,6 +69,13 @@ char const *http_strerror(int error)
 
 	case http_parser_result_value:
 		return HTTP_PARSER_ERROR_VALUE_STRING;
+
+	case http_parser_result_content:
+		return HTTP_PARSER_ERROR_CONTENT_STRING;
+
+	case http_parser_result_too_many:
+		return HTTP_PARSER_ERROR_TOO_MANY_STRING;
+
 	default:
 		break;
 	}
@@ -104,7 +111,8 @@ static http_parser_result_t http_parser_parse_header(http_parser_t  *parser,
 static http_parser_result_t http_parser_parse_headers(http_parser_t  *parser,
 						      http_message_t *message);
 
-static void http_parser_parse_content(http_parser_t *parser, http_message_t *message);
+static http_parser_result_t http_parser_parse_content(http_parser_t  *parser,
+						      http_message_t *message);
 
 void http_parser_init(http_parser_t *parser)
 {
@@ -164,6 +172,30 @@ http_parser_result_t http_parser_parse_request(http_parser_t *parser, void *requ
 	return _http_parser_parse_request(parser, (http_request_t *)request);
 }
 
+http_parser_result_t http_parser_parse_requests(http_parser_t *parser, void *requests, size_t *n)
+{
+	http_parser_result_t result;
+	size_t		     i = 0;
+
+	do {
+		if (i >= *n) {
+			return http_parser_result_too_many;
+		}
+
+		result = http_parser_parse_request(parser, (http_request_t *)requests + i);
+		if (result != http_parser_result_ok) {
+			*n = i;
+			return result;
+		}
+
+		++i;
+	} while (!IS_EOF(parser));
+
+	*n = i;
+
+	return result;
+}
+
 static http_parser_result_t _http_parser_parse_response(http_parser_t	*parser,
 							http_response_t *response)
 {
@@ -213,6 +245,29 @@ static http_parser_result_t _http_parser_parse_response(http_parser_t	*parser,
 http_parser_result_t http_parser_parse_response(http_parser_t *parser, void *response)
 {
 	return _http_parser_parse_response(parser, (http_response_t *)response);
+}
+
+http_parser_result_t http_parser_parse_responses(http_parser_t *parser, void *responses, size_t *n)
+{
+	http_parser_result_t result;
+	size_t		     i = 0;
+
+	do {
+		if (i >= *n) {
+			return http_parser_result_too_many;
+		}
+
+		result = http_parser_parse_response(parser, (http_response_t *)responses + i);
+		if (result != http_parser_result_ok) {
+			return result;
+		}
+
+		++i;
+	} while (!IS_EOF(parser));
+
+	*n = i;
+
+	return result;
 }
 
 #define MAP_METHOD(s, m)                              \
@@ -381,7 +436,10 @@ static http_parser_result_t _http_parser_parse_message(http_parser_t  *parser,
 		return result;
 	}
 
-	http_parser_parse_content(parser, message);
+	result = http_parser_parse_content(parser, message);
+	if (result != http_parser_result_ok) {
+		return result;
+	}
 
 	return http_parser_result_ok;
 }
@@ -479,13 +537,26 @@ static http_parser_result_t http_parser_parse_headers(http_parser_t  *parser,
 	return http_parser_result_ok;
 }
 
-static void http_parser_parse_content(http_parser_t *parser, http_message_t *message)
+static http_parser_result_t http_parser_parse_content(http_parser_t  *parser,
+						      http_message_t *message)
 {
 	assert(parser && message);
+	size_t	    content_length;
+	char const *content = http_message_header_get(message, HTTP_CONTENT_LENGTH);
 
-	if (IS_EOF(parser)) {
-		return;
+	if (!content) {
+		return http_parser_result_ok;
 	}
 
-	http_message_content_set(message, LEXEME(parser));
+	sscanf(content, "%zu", &content_length);
+
+	if (parser->current + content_length > parser->source_len) {
+		return http_parser_result_content;
+	}
+
+	http_message_content_set_n(message, (uint8_t const *)LEXEME(parser), content_length);
+
+	parser->current += content_length;
+
+	return http_parser_result_ok;
 }

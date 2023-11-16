@@ -14,6 +14,8 @@
 #define HTTP_PARSER_ERROR_HEADER_STRING		  "Malformed header"
 #define HTTP_PARSER_ERROR_KEY_STRING		  "Missing header key"
 #define HTTP_PARSER_ERROR_VALUE_STRING		  "Missing header value"
+#define HTTP_PARSER_ERROR_CONTENT_STRING	  "Missing content section"
+#define HTTP_PARSER_ERROR_TOO_MANY_STRING	  "Too many messages."
 
 typedef struct {
 	char const *source;
@@ -33,12 +35,16 @@ typedef enum {
 	http_parser_result_header,
 	http_parser_result_key,
 	http_parser_result_value,
+	http_parser_result_content,
+	http_parser_result_too_many,
 } http_parser_result_t;
 
 void http_parser_init(http_parser_t *parser);
 
 http_parser_result_t http_parser_parse_request(http_parser_t *parser, void *request);
+http_parser_result_t http_parser_parse_requests(http_parser_t *parser, void *requests, size_t *n);
 http_parser_result_t http_parser_parse_response(http_parser_t *parser, void *response);
+http_parser_result_t http_parser_parse_responses(http_parser_t *parser, void *responses, size_t *n);
 http_parser_result_t http_parser_parse_message(http_parser_t *parser, void *message);
 
 #endif

@@ -23,6 +23,7 @@ void http_message_init(void *message);
 void http_message_deinit(void *message);
 
 void http_message_content_set(void *message, char const *str);
+void http_message_content_set_n(void *message, uint8_t const *data, size_t n);
 
 bool http_message_header_set(void *message, char const *key, char const *value);
 bool http_message_header_set_n(void *message, char const *key, size_t key_n, char const *value,
