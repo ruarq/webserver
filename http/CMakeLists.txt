@@ -7,6 +7,7 @@ set(HEADERS
 	include/http/request.h
 	include/http/response.h
 	include/http/version.h
+	include/http/parser.h
 )
 
 set(SOURCES
@@ -15,7 +16,6 @@ set(SOURCES
 	src/request.c
 	src/response.c
 	src/version.c
-	src/parser.h
 	src/parser.c
 )
 

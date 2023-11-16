@@ -38,6 +38,8 @@ void http_request_init(http_request_t *request)
 
 void http_request_deinit(http_request_t *request)
 {
+	assert(request);
+
 	http_message_deinit(request);
 	free(request->path);
 }
@@ -91,4 +93,18 @@ char *http_request_to_string(http_request_t *request)
 	free(message_string);
 
 	return buf;
+}
+
+int http_requests_from_string(http_request_t *requests, size_t *n, char const **str)
+{
+	http_parser_t	     parser;
+	http_parser_result_t result;
+
+	http_parser_init(&parser);
+	parser.source	  = *str;
+	parser.source_len = strlen(*str);
+	result		  = http_parser_parse_requests(&parser, requests, n);
+	*str		  = parser.source + parser.current;
+
+	return result;
 }
