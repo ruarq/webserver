@@ -20,28 +20,28 @@ void response_init(response_t *response)
 	response->response = NULL;
 }
 
-void response_deinit(response_t *response)
+void response_deinit(response_t const *response)
 {
 	free(response->response);
 }
 
 bool webserver_init(webserver_t *server, char const *ip, char const *port, char const *root_path)
 {
-	int		 sock;
-	int		 result;
+	int		 sock = -1;
 	struct addrinfo	 hints;
 	struct addrinfo *info;
 	struct addrinfo *info_itr;
 	void		*addr;
 	char		*ipver;
 	char		 ipstr[INET6_ADDRSTRLEN];
-	int		 yes = 1;
-	size_t		 i;
+	int const	 yes = 1;
+
+	server->running = false;
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family	  = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
-	result		  = getaddrinfo(ip, port, &hints, &info);
+	int const result  = getaddrinfo(ip, port, &hints, &info);
 	if (result == -1) {
 		return false;
 	}
@@ -53,16 +53,18 @@ bool webserver_init(webserver_t *server, char const *ip, char const *port, char 
 		}
 	}
 
-	if (!info_itr) {
+	if (info_itr == NULL) {
 		freeaddrinfo(info);
 		return false;
 	}
 
-	if (info_itr->ai_family == AF_INET) { // IPv4
+	if (info_itr->ai_family == AF_INET) {
+		// IPv4
 		struct sockaddr_in *ipv4 = (struct sockaddr_in *)info_itr->ai_addr;
 		addr			 = &(ipv4->sin_addr);
 		ipver			 = "IPv4";
-	} else { // IPv6
+	} else {
+		// IPv6
 		struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)info_itr->ai_addr;
 		addr			  = &(ipv6->sin6_addr);
 		ipver			  = "IPv6";
@@ -70,7 +72,7 @@ bool webserver_init(webserver_t *server, char const *ip, char const *port, char 
 
 	// convert the IP to a string and print it:
 	inet_ntop(info_itr->ai_family, addr, ipstr, sizeof(ipstr));
-	printf("webserver\n\tip %s:%s\n", ipstr, port);
+	printf("webserver\n%s %s:%s\n", ipver, ipstr, port);
 
 	if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1) {
 		freeaddrinfo(info);
@@ -97,23 +99,23 @@ bool webserver_init(webserver_t *server, char const *ip, char const *port, char 
 
 	printf("\troot_path: %s\n", root_path);
 
-	for (i = 0; i < WEBSERVER_CLIENT_COUNT_MAX; ++i) {
+	for (size_t i = 0; i < WEBSERVER_CLIENT_COUNT_MAX; ++i) {
 		server->buffer[i] = NULL;
 	}
 
 	// add the listening socket as a client to be able to poll events from it
 	webserver_client_add(server, sock);
 
+	server->running = true;
+
 	return true;
 }
 
-void webserver_deinit(webserver_t *server)
+void webserver_deinit(webserver_t const *server)
 {
 	assert(server);
 
-	size_t i;
-
-	for (i = 0; i < WEBSERVER_CLIENT_COUNT_MAX; ++i) {
+	for (size_t i = 0; i < WEBSERVER_CLIENT_COUNT_MAX; ++i) {
 		free(server->buffer[i]);
 	}
 
@@ -122,29 +124,37 @@ void webserver_deinit(webserver_t *server)
 
 void webserver_run(webserver_t *server)
 {
-	size_t			i;
-	struct pollfd	       *pfd;
-	int			new_client;
 	struct sockaddr_storage new_client_addr;
 	socklen_t		new_client_addr_len = sizeof(new_client_addr);
 
 	response_t response;
 
-	while (true) {
-		for (i = 0; i < server->response_count; ++i) {
+	while (server->running) {
+		for (size_t i = 0; i < server->response_count; ++i) {
 			response = webserver_response_pop(server);
 			webserver_respond(response.client, response.response);
 			response_deinit(&response);
 		}
 
-		if (poll(server->client, server->client_count, WEBSERVER_POLL_TIMEOUT) <= 0) {
+		int const result =
+			poll(server->client, server->client_count, WEBSERVER_POLL_TIMEOUT);
+		switch (result) {
+		case -1:
+			printf("Error: poll: %s\n", strerror(result));
 			continue;
+
+		case 0:
+			continue;
+
+		default:
+			break;
 		}
 
 		if (server->client[0].revents & POLLIN) {
 			printf("===== INCOMING CONN =====\n");
-			new_client = accept(server->socket, (struct sockaddr *)&new_client_addr,
-					    &new_client_addr_len);
+			int const new_client = accept(server->socket,
+						      (struct sockaddr *)&new_client_addr,
+						      &new_client_addr_len);
 			if (new_client != -1) {
 				printf("Success.\n");
 				webserver_client_add(server, new_client);
@@ -154,10 +164,11 @@ void webserver_run(webserver_t *server)
 			continue;
 		}
 
-		for (i = 1; i < server->client_count; ++i) {
-			pfd = &server->client[i];
+		for (size_t i = 1; i < server->client_count; ++i) {
+			struct pollfd const *pfd = &server->client[i];
 
 			if (pfd->revents & POLLHUP) {
+				printf("===== CLOSING CONN (%zu) =====\n", i);
 				webserver_client_remove(server, pfd->fd);
 			} else if (pfd->revents & POLLIN) {
 				webserver_client_receive(server, i);
@@ -167,13 +178,15 @@ void webserver_run(webserver_t *server)
 				}
 			}
 		}
+
+		sleep(1);
 	}
 }
 
-void webserver_response_push(webserver_t *server, response_t *response)
+void webserver_response_push(webserver_t *server, response_t const *response)
 {
 	if (server->response_count >= WEBSERVER_RESPONSE_COUNT_MAX) {
-		// TODO(ruarq): error
+		printf("Error: max response count reached (%d)\n", WEBSERVER_RESPONSE_COUNT_MAX);
 		return;
 	}
 
@@ -185,14 +198,15 @@ response_t webserver_response_pop(webserver_t *server)
 	return server->response[--server->response_count];
 }
 
-bool webserver_client_add(webserver_t *server, int client)
+bool webserver_client_add(webserver_t *server, int const client)
 {
 	assert(server);
 
 	struct pollfd pfd;
 
-	pfd.fd	   = client;
-	pfd.events = POLLIN;
+	pfd.fd	    = client;
+	pfd.events  = POLLIN;
+	pfd.revents = 0;
 
 	if (server->client_count >= WEBSERVER_CLIENT_COUNT_MAX) {
 		return false;
@@ -205,15 +219,14 @@ bool webserver_client_add(webserver_t *server, int client)
 	return true;
 }
 
-void webserver_client_remove(webserver_t *server, int client)
+void webserver_client_remove(webserver_t *server, int const client)
 {
 	assert(server);
 
-	size_t i;
-
-	for (i = 0; i < server->client_count; ++i) {
+	for (size_t i = 0; i < server->client_count; ++i) {
 		if (server->client[i].fd == client) {
 			close(client);
+			shutdown(client, SHUT_RDWR);
 			free(server->buffer[i]);
 			server->client[i] = server->client[server->client_count - 1];
 			server->buffer[i] = server->buffer[server->client_count - 1];
@@ -223,17 +236,17 @@ void webserver_client_remove(webserver_t *server, int client)
 	}
 }
 
-void webserver_client_receive(webserver_t *server, size_t client_index)
+void webserver_client_receive(webserver_t *server, size_t const client_index)
 {
-	int    fd	    = server->client[client_index].fd;
-	char  *buf	    = webserver_receive(fd);
-	char  *msg	    = server->buffer[client_index];
-	size_t required_len = 0;
+	int const   fd		 = server->client[client_index].fd;
+	char const *buf		 = webserver_receive(fd);
+	char	   *msg		 = server->buffer[client_index];
+	size_t	    required_len = 0;
 	if (msg) {
 		required_len += strlen(msg);
 	}
 
-	if (!buf) {
+	if (buf == NULL) {
 		return;
 	}
 
@@ -244,34 +257,34 @@ void webserver_client_receive(webserver_t *server, size_t client_index)
 	server->buffer[client_index] = msg;
 }
 
-char *webserver_receive(int client)
+char *webserver_receive(int const client)
 {
-	char  *message = calloc(WEBSERVER_PACKET_SIZE + 1, sizeof(char));
-	int    result;
-	size_t bytes_received = 0;
+	char *message = calloc(WEBSERVER_PACKET_SIZE + 1, sizeof(char));
 
-	result = recv(client, message, WEBSERVER_PACKET_SIZE, 0);
+	int const result = recv(client, message, WEBSERVER_PACKET_SIZE, 0);
 	if (result < 0) {
 		free(message);
 		return NULL;
 	}
 
-	printf("===== INCOMING MSG =====\n");
+	printf("===== INCOMING MSG (%d) =====\n", client);
 	printf("%s\n", message);
 
 	return message;
 }
 
-char *webserver_http_host(webserver_t *server)
+char *webserver_http_host(webserver_t const *server)
 {
-	size_t required_length = strlen(server->ip_address) + 1 + strlen(server->port);
-	char  *buf	       = calloc(required_length + 1, sizeof(char));
+	size_t const required_length = strlen(server->ip_address) + 1 + strlen(server->port);
+	// ReSharper disable once CppDFAMemoryLeak
+	char *buf = calloc(required_length + 1, sizeof(char));
 	snprintf(buf, required_length + 1, "%s:%s", server->ip_address, server->port);
 	return buf;
 }
 
-void webserver_http_response_prepare(webserver_t *server, http_response_t *response)
+void webserver_http_response_prepare(webserver_t const *server, http_response_t *response)
 {
+	// ReSharper disable once CppDFAMemoryLeak
 	char *host = webserver_http_host(server);
 
 	http_response_init(response);
@@ -283,44 +296,45 @@ void webserver_http_response_prepare(webserver_t *server, http_response_t *respo
 	free(host);
 }
 
-http_response_t *webserver_http_response_create(webserver_t *server)
+http_response_t *webserver_http_response_create(webserver_t const *server)
 {
+	// ReSharper disable once CppDFAMemoryLeak
 	http_response_t *response = malloc(sizeof(*response));
 	webserver_http_response_prepare(server, response);
 	return response;
 }
 
-void webserver_respond(int client, http_response_t *response)
+void webserver_respond(int const client, http_response_t *response)
 {
-	char  *send_buf	     = http_response_to_string(response);
-	size_t bytes_to_send = strlen(send_buf);
-	size_t bytes_sent    = 0;
+	char	    *send_buf	   = http_response_to_string(response);
+	size_t const bytes_to_send = strlen(send_buf);
+	size_t	     bytes_sent	   = 0;
 
 	do {
 		bytes_sent += send(client, send_buf + bytes_sent, bytes_to_send - bytes_sent, 0);
 	} while (bytes_sent < bytes_to_send);
 
-	printf("===== OUTGOING MSG =====\n");
+	printf("===== OUTGOING MSG (%d) =====\n", client);
 	printf("%s\n", send_buf);
 
 	free(send_buf);
 }
 
-bool webserver_request_handle(webserver_t *server, size_t client_index)
+bool webserver_request_handle(webserver_t *server, size_t const client_index)
 {
-	int	       client = server->client[client_index].fd;
+	int const      client = server->client[client_index].fd;
 	char const    *buffer = server->buffer[client_index];
 	http_request_t request[WEBSERVER_REQUEST_COUNT_MAX];
 	size_t	       request_count = WEBSERVER_REQUEST_COUNT_MAX;
-	int	       result;
-	char	      *remain_buf;
-	size_t	       remain_len;
 	response_t     response;
-	size_t	       i;
 
 	// there is at least one complete message in buffer
-	result = http_requests_from_string(request, &request_count, &buffer);
-	if (request_count == 0) {
+	http_parser_result_t const result =
+		http_requests_from_string(request, &request_count, &buffer);
+
+	if (result != http_parser_result_ok) {
+		printf("Error: Invalid http request: %s\n", http_strerror(result));
+
 		response.client = client;
 #if !TESTING
 		response.response	  = webserver_http_response_create(server);
@@ -333,7 +347,7 @@ bool webserver_request_handle(webserver_t *server, size_t client_index)
 #endif
 		webserver_response_push(server, &response);
 	} else {
-		for (i = 0; i < request_count; ++i) {
+		for (size_t i = 0; i < request_count; ++i) {
 			switch (request[i].method) {
 			case http_method_get:
 				webserver_http_request_handle_get(server, client, &request[i]);
@@ -348,7 +362,8 @@ bool webserver_request_handle(webserver_t *server, size_t client_index)
 				break;
 
 			default:
-				response.client		  = client;
+				response.client = client;
+				// ReSharper disable once CppDFAMemoryLeak
 				response.response	  = webserver_http_response_create(server);
 				response.response->status = http_status_not_implemented;
 #if !TESTING
@@ -363,8 +378,8 @@ bool webserver_request_handle(webserver_t *server, size_t client_index)
 	}
 
 	if (*buffer != '\0') {
-		remain_len = strlen(buffer);
-		remain_buf = calloc(remain_len + 1, sizeof(char));
+		size_t const remain_len = strlen(buffer);
+		char	    *remain_buf = calloc(remain_len + 1, sizeof(char));
 		strcpy(remain_buf, buffer);
 		free(server->buffer[client_index]);
 		server->buffer[client_index] = remain_buf;
@@ -376,17 +391,15 @@ bool webserver_request_handle(webserver_t *server, size_t client_index)
 	return true;
 }
 
-bool webserver_message_is_ready(webserver_t *server, size_t client_index)
+bool webserver_message_is_ready(webserver_t const *server, size_t const client_index)
 {
 	assert(server && client_index < server->client_count);
 
-	char	      *message = server->buffer[client_index];
+	char const    *message = server->buffer[client_index];
 	http_request_t request;
-	int	       result;
-
-	result = http_request_from_string(&request, server->buffer[client_index]);
+	int const      result = http_request_from_string(&request, server->buffer[client_index]);
 	http_request_deinit(&request);
-	if (!strstr(message, "\n\n") && !strstr(message, "\r\n\r\n")) {
+	if (strstr(message, "\n\n") == NULL && strstr(message, "\r\n\r\n") == NULL) {
 		return false;
 	}
 
@@ -399,17 +412,20 @@ bool webserver_message_is_ready(webserver_t *server, size_t client_index)
 	return true;
 }
 
-void webserver_http_request_handle_get(webserver_t *server, int client, http_request_t *request)
+void webserver_http_request_handle_get(webserver_t *server, int const client,
+				       http_request_t *request)
 {
 	assert(server && request);
 
 	response_t response;
 	char	  *content = webserver_load_resource(server, request->path);
 
+	printf("DEBUG: %s\n", content);
+
 	response.client	  = client;
 	response.response = webserver_http_response_create(server);
 
-	if (!content) {
+	if (content == NULL) {
 		response.response->status = http_status_not_found;
 #if !TESTING
 		content = calloc(strlen(request->path) + strlen(HTTP_STATUS_NOT_FOUND_STRING) + 3,
@@ -430,7 +446,8 @@ void webserver_http_request_handle_get(webserver_t *server, int client, http_req
 	webserver_response_push(server, &response);
 }
 
-void webserver_http_request_handle_put(webserver_t *server, int client, http_request_t *request)
+void webserver_http_request_handle_put(webserver_t *server, int const client,
+				       http_request_t const *request)
 {
 	assert(server && client != -1 && request);
 
@@ -439,10 +456,11 @@ void webserver_http_request_handle_put(webserver_t *server, int client, http_req
 	char *full_path = webserver_full_path(server, request->path);
 	FILE *file	= fopen(full_path, "w");
 
-	response.client	  = client;
+	response.client = client;
+	// ReSharper disable once CppDFAMemoryLeak
 	response.response = webserver_http_response_create(server);
 
-	if (!file) {
+	if (file == NULL) {
 		response.response->status = http_status_internal_server_error;
 #if !TESTING
 		http_message_content_set(response.response, strerror(errno));
@@ -469,18 +487,19 @@ void webserver_http_request_handle_put(webserver_t *server, int client, http_req
 	webserver_response_push(server, &response);
 }
 
-void webserver_http_request_handle_delete(webserver_t *server, int client, http_request_t *request)
+void webserver_http_request_handle_delete(webserver_t *server, int const client,
+					  http_request_t const *request)
 {
 	assert(server && client != -1 && request);
 
 	response_t response;
 	char	  *full_path = webserver_full_path(server, request->path);
-	int	   result;
 
-	result = remove(full_path);
+	int const result = remove(full_path);
 	free(full_path);
 
-	response.client	  = client;
+	response.client = client;
+	// ReSharper disable once CppDFAMemoryLeak
 	response.response = webserver_http_response_create(server);
 
 	if (result != 0) {
@@ -504,25 +523,22 @@ void webserver_http_request_handle_delete(webserver_t *server, int client, http_
 	webserver_response_push(server, &response);
 }
 
-char *webserver_full_path(webserver_t *server, char const *path)
+char *webserver_full_path(webserver_t const *server, char const *path)
 {
 	assert(server && path);
 
-	size_t required_len = strlen(server->root_path) + strlen(path);
-	char  *buf	    = calloc(required_len + 1, sizeof(char));
+	size_t const required_len = strlen(server->root_path) + strlen(path);
+	char	    *buf	  = calloc(required_len + 1, sizeof(char));
 	strcpy(buf, server->root_path);
 	strcat(buf, path);
 
 	return buf;
 }
 
-char *webserver_load_resource(webserver_t *server, char const *path)
+char *webserver_load_resource(webserver_t const *server, char const *path)
 {
 	assert(server && path);
 
-	char	   *full_path;
-	FILE	   *file;
-	size_t	    file_size;
 	char	   *buf;
 	struct stat path_stat;
 
@@ -544,21 +560,23 @@ char *webserver_load_resource(webserver_t *server, char const *path)
 		return buf;
 	}
 
-	full_path = webserver_full_path(server, path);
+	char *full_path = webserver_full_path(server, path);
 
 	printf("resource '%s' requested: ", full_path);
 
 	stat(full_path, &path_stat);
+
+	// ReSharper disable once CppRedundantComplexityInComparison
 	if (!S_ISREG(path_stat.st_mode)) {
 		printf("FAIL\n");
 		free(full_path);
 		return NULL;
 	}
 
-	file = fopen(full_path, "r");
+	FILE *file = fopen(full_path, "r");
 	free(full_path);
 
-	if (!file) {
+	if (file == NULL) {
 		printf("FAIL\n");
 		return NULL;
 	}
@@ -566,7 +584,7 @@ char *webserver_load_resource(webserver_t *server, char const *path)
 	printf("OK\n");
 
 	fseek(file, 0, SEEK_END);
-	file_size = ftell(file);
+	size_t const file_size = ftell(file);
 	fseek(file, 0, SEEK_SET);
 
 	buf = calloc(file_size + 1, sizeof(char));

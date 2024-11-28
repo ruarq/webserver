@@ -10,8 +10,8 @@ typedef struct {
 	uint8_t minor;
 } http_version_t;
 
-void http_version_init(http_version_t *version, uint8_t mahor, uint8_t minor);
+void http_version_init(http_version_t *version, uint8_t major, uint8_t minor);
 
-char *http_version_to_string(http_version_t *version);
+char *http_version_to_string(http_version_t const *version);
 
 #endif

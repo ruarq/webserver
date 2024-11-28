@@ -13,7 +13,8 @@
 
 #define CURRENT(p)	 ((p)->source[(p)->current])
 #define LEXEME(p)	 ((p)->source + (p)->current)
-#define IS_EOF(p)	 ((p)->current >= (p)->source_len)
+#define IS_EOF(p)    ((p)->current >= (p)->source_len)
+#define NOT_EOF(p)	 ((p)->current < (p)->source_len)
 #define IS_DIGIT(c)	 (isalnum(c))
 #define CR		 '\r'
 #define LF		 '\n'
@@ -23,8 +24,9 @@
 #define IS_PATH_SEGMENT(c) \
 	(isalpha(c) || isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~')
 #define STREQ(s1, s2)	   (strcmp(s1, s2) == 0)
-#define STRNEQ(s1, s2, n)  (strncmp(s1, s2, n) == 0)
-#define STRNEQL(s1, s2, n) (strncmp(s1, s2, n) == 0 && strlen(s1) == (n))
+#define STREQ_N(s1, s2, n)  (strncmp(s1, s2, n) == 0)
+#define STRNEQ_N(s1, s2, n) (strncmp(s1, s2, n) != 0)
+#define STREQ_NL(s1, s2, n) (strncmp(s1, s2, n) == 0 && strlen(s1) == (n))
 #define SKIP_WHITESPACE(p)                                  \
 	do {                                                \
 		char c = (p)->source[(p)->current];         \
@@ -34,106 +36,101 @@
 		++((p)->current);                           \
 	} while (1)
 
-char const *http_strerror(int error)
-{
-	switch ((http_parser_result_t)error) {
-	case http_parser_result_ok:
-		return HTTP_PARSER_ERROR_NOERROR_STRING;
+char const *http_strerror(int const error) {
+	switch ((http_parser_result_t) error) {
+		case http_parser_result_ok:
+			return HTTP_PARSER_ERROR_NOERROR_STRING;
 
-	case http_parser_result_crlf:
-		return HTTP_PARSER_ERROR_CRLF_STRING;
+		case http_parser_result_crlf:
+			return HTTP_PARSER_ERROR_CRLF_STRING;
 
-	case http_parser_result_method:
-		return HTTP_PARSER_ERROR_METHOD_STRING;
+		case http_parser_result_method:
+			return HTTP_PARSER_ERROR_METHOD_STRING;
 
-	case http_parser_result_path:
-		return HTTP_PARSER_ERROR_PATH_STRING;
+		case http_parser_result_path:
+			return HTTP_PARSER_ERROR_PATH_STRING;
 
-	case http_parser_result_version:
-		return HTTP_PARSER_ERROR_VERSION_STRING;
+		case http_parser_result_version:
+			return HTTP_PARSER_ERROR_VERSION_STRING;
 
-	case http_parser_result_version_mismatch:
-		return HTTP_PARSER_ERROR_VERSION_MISMATCH_STRING;
+		case http_parser_result_version_mismatch:
+			return HTTP_PARSER_ERROR_VERSION_MISMATCH_STRING;
 
-	case http_parser_result_status:
-		return HTTP_PARSER_ERROR_STATUS_STRING;
+		case http_parser_result_status:
+			return HTTP_PARSER_ERROR_STATUS_STRING;
 
-	case http_parser_result_status_invalid:
-		return HTTP_PARSER_ERROR_STATUS_INVALID_STRING;
+		case http_parser_result_status_invalid:
+			return HTTP_PARSER_ERROR_STATUS_INVALID_STRING;
 
-	case http_parser_result_header:
-		return HTTP_PARSER_ERROR_HEADER_STRING;
+		case http_parser_result_header:
+			return HTTP_PARSER_ERROR_HEADER_STRING;
 
-	case http_parser_result_key:
-		return HTTP_PARSER_ERROR_KEY_STRING;
+		case http_parser_result_key:
+			return HTTP_PARSER_ERROR_KEY_STRING;
 
-	case http_parser_result_value:
-		return HTTP_PARSER_ERROR_VALUE_STRING;
+		case http_parser_result_value:
+			return HTTP_PARSER_ERROR_VALUE_STRING;
 
-	case http_parser_result_content:
-		return HTTP_PARSER_ERROR_CONTENT_STRING;
+		case http_parser_result_content:
+			return HTTP_PARSER_ERROR_CONTENT_STRING;
 
-	case http_parser_result_too_many:
-		return HTTP_PARSER_ERROR_TOO_MANY_STRING;
+		case http_parser_result_too_many:
+			return HTTP_PARSER_ERROR_TOO_MANY_STRING;
 
-	default:
-		break;
+		default:
+			break;
 	}
 
 	return NULL;
 }
 
-static http_parser_result_t _http_parser_parse_request(http_parser_t  *parser,
-						       http_request_t *request);
+static http_parser_result_t _http_parser_parse_request(http_parser_t *parser,
+                                                       http_request_t *request);
 
-static http_parser_result_t _http_parser_parse_response(http_parser_t	*parser,
-							http_response_t *response);
+static http_parser_result_t _http_parser_parse_response(http_parser_t *parser,
+                                                        http_response_t *response);
 
-static http_parser_result_t http_parser_parse_method(http_parser_t  *parser,
-						     http_request_t *request);
+static http_parser_result_t http_parser_parse_method(http_parser_t *parser,
+                                                     http_request_t *request);
 
 static http_parser_result_t http_parser_parse_path(http_parser_t *parser, http_request_t *request);
 
 static http_parser_result_t http_parser_validate_path(http_parser_t *parser, char const *path);
 
-static http_parser_result_t http_parser_parse_version(http_parser_t  *parser,
-						      http_message_t *message);
+static http_parser_result_t http_parser_parse_version(http_parser_t *parser,
+                                                      http_message_t *message);
 
-static http_parser_result_t http_parser_parse_status_code(http_parser_t	  *parser,
-							  http_response_t *response);
+static http_parser_result_t http_parser_parse_status_code(http_parser_t *parser,
+                                                          http_response_t *response);
 
-static http_parser_result_t _http_parser_parse_message(http_parser_t  *parser,
-						       http_message_t *message);
+static http_parser_result_t _http_parser_parse_message(http_parser_t *parser,
+                                                       http_message_t *message);
 
-static http_parser_result_t http_parser_parse_header(http_parser_t  *parser,
-						     http_message_t *message);
+static http_parser_result_t http_parser_parse_header(http_parser_t *parser,
+                                                     http_message_t *message);
 
-static http_parser_result_t http_parser_parse_headers(http_parser_t  *parser,
-						      http_message_t *message);
+static http_parser_result_t http_parser_parse_headers(http_parser_t *parser,
+                                                      http_message_t *message);
 
-static http_parser_result_t http_parser_parse_content(http_parser_t  *parser,
-						      http_message_t *message);
+static http_parser_result_t http_parser_parse_content(http_parser_t *parser,
+                                                      http_message_t *message);
 
-void http_parser_init(http_parser_t *parser)
-{
+void http_parser_init(http_parser_t *parser) {
 	assert(parser);
 
-	parser->source	   = NULL;
+	parser->source = NULL;
 	parser->source_len = 0;
-	parser->current	   = 0;
+	parser->current = 0;
 }
 
-static http_parser_result_t _http_parser_parse_request(http_parser_t  *parser,
-						       http_request_t *request)
-{
+static http_parser_result_t _http_parser_parse_request(http_parser_t *parser,
+                                                       http_request_t *request) {
 	assert(parser && request);
-
-	http_parser_result_t result;
 
 	http_request_init(request);
 
 	SKIP_WHITESPACE(parser);
-	result = http_parser_parse_method(parser, request);
+	http_parser_result_t result = http_parser_parse_method(parser, request);
 	if (result != http_parser_result_ok) {
 		return result;
 	}
@@ -153,7 +150,7 @@ static http_parser_result_t _http_parser_parse_request(http_parser_t  *parser,
 	SKIP_WHITESPACE(parser);
 	if (CURRENT(parser) == LF) {
 		++parser->current;
-	} else if (STRNEQ(LEXEME(parser), CRLF, strlen(CRLF))) {
+	} else if (STREQ_N(LEXEME(parser), CRLF, strlen(CRLF))) {
 		parser->current += 2;
 	} else {
 		return http_parser_result_crlf;
@@ -167,46 +164,41 @@ static http_parser_result_t _http_parser_parse_request(http_parser_t  *parser,
 	return http_parser_result_ok;
 }
 
-http_parser_result_t http_parser_parse_request(http_parser_t *parser, void *request)
-{
-	return _http_parser_parse_request(parser, (http_request_t *)request);
+http_parser_result_t http_parser_parse_request(http_parser_t *parser, void *request) {
+	return _http_parser_parse_request(parser, (http_request_t *) request);
 }
 
-http_parser_result_t http_parser_parse_requests(http_parser_t *parser, void *requests, size_t *n)
-{
+http_parser_result_t http_parser_parse_requests(http_parser_t *parser, void *requests, size_t *n) {
 	http_parser_result_t result;
-	size_t		     i = 0;
+	size_t i = 0;
 
 	do {
 		if (i >= *n) {
 			return http_parser_result_too_many;
 		}
 
-		result = http_parser_parse_request(parser, (http_request_t *)requests + i);
+		result = http_parser_parse_request(parser, (http_request_t *) requests + i);
 		if (result != http_parser_result_ok) {
 			*n = i;
 			return result;
 		}
 
 		++i;
-	} while (!IS_EOF(parser));
+	} while (NOT_EOF(parser));
 
 	*n = i;
 
 	return result;
 }
 
-static http_parser_result_t _http_parser_parse_response(http_parser_t	*parser,
-							http_response_t *response)
-{
+static http_parser_result_t _http_parser_parse_response(http_parser_t *parser,
+                                                        http_response_t *response) {
 	assert(parser && response);
-
-	http_parser_result_t result;
 
 	http_response_init(response);
 
 	SKIP_WHITESPACE(parser);
-	result = http_parser_parse_version(parser, &response->message);
+	http_parser_result_t result = http_parser_parse_version(parser, &response->message);
 	if (result != http_parser_result_ok) {
 		return result;
 	}
@@ -220,10 +212,10 @@ static http_parser_result_t _http_parser_parse_response(http_parser_t	*parser,
 	SKIP_WHITESPACE(parser);
 
 	// if there is a status message, we don't care about it
-	while (!IS_EOF(parser)) {
+	while (NOT_EOF(parser)) {
 		if (CURRENT(parser) == LF) {
 			break;
-		} else if (STRNEQ(LEXEME(parser), CRLF, strlen(CRLF))) {
+		} else if (STREQ_N(LEXEME(parser), CRLF, strlen(CRLF))) {
 			break;
 		}
 
@@ -242,28 +234,26 @@ static http_parser_result_t _http_parser_parse_response(http_parser_t	*parser,
 	return http_parser_parse_message(parser, response);
 }
 
-http_parser_result_t http_parser_parse_response(http_parser_t *parser, void *response)
-{
-	return _http_parser_parse_response(parser, (http_response_t *)response);
+http_parser_result_t http_parser_parse_response(http_parser_t *parser, void *response) {
+	return _http_parser_parse_response(parser, (http_response_t *) response);
 }
 
-http_parser_result_t http_parser_parse_responses(http_parser_t *parser, void *responses, size_t *n)
-{
+http_parser_result_t http_parser_parse_responses(http_parser_t *parser, void *responses, size_t *n) {
 	http_parser_result_t result;
-	size_t		     i = 0;
+	size_t i = 0;
 
 	do {
 		if (i >= *n) {
 			return http_parser_result_too_many;
 		}
 
-		result = http_parser_parse_response(parser, (http_response_t *)responses + i);
+		result = http_parser_parse_response(parser, (http_response_t *) responses + i);
 		if (result != http_parser_result_ok) {
 			return result;
 		}
 
 		++i;
-	} while (!IS_EOF(parser));
+	} while (NOT_EOF(parser));
 
 	*n = i;
 
@@ -272,21 +262,19 @@ http_parser_result_t http_parser_parse_responses(http_parser_t *parser, void *re
 
 #define MAP_METHOD(s, m)                              \
 	do {                                          \
-		if (STRNEQL(s, method, method_len)) { \
+		if (STREQ_NL(s, method, method_len)) { \
 			request->method = m;          \
 			return http_parser_result_ok; \
 		}                                     \
 	} while (0)
 
-static http_parser_result_t http_parser_parse_method(http_parser_t *parser, http_request_t *request)
-{
+static http_parser_result_t http_parser_parse_method(http_parser_t *parser, http_request_t *request) {
 	assert(parser && request);
 
-	char const *method;
-	size_t	    method_len = 0;
+	size_t method_len = 0;
 
-	method = LEXEME(parser);
-	while (!IS_EOF(parser) && IS_METHOD(CURRENT(parser))) {
+	char const *method = LEXEME(parser);
+	while (NOT_EOF(parser) && IS_METHOD(CURRENT(parser))) {
 		++parser->current;
 		++method_len;
 	}
@@ -310,15 +298,13 @@ static http_parser_result_t http_parser_parse_method(http_parser_t *parser, http
 
 #undef MAP_METHOD
 
-static http_parser_result_t http_parser_parse_path(http_parser_t *parser, http_request_t *request)
-{
+static http_parser_result_t http_parser_parse_path(http_parser_t *parser, http_request_t *request) {
 	assert(parser && request);
 
-	char const *path;
-	size_t	    path_len = 0;
+	size_t path_len = 0;
 
-	path = LEXEME(parser);
-	while (!IS_EOF(parser) && !isspace(CURRENT(parser))) {
+	char const *path = LEXEME(parser);
+	while (NOT_EOF(parser) && !isspace(CURRENT(parser))) {
 		++parser->current;
 		++path_len;
 	}
@@ -331,8 +317,7 @@ static http_parser_result_t http_parser_parse_path(http_parser_t *parser, http_r
 	return http_parser_validate_path(parser, request->path);
 }
 
-static http_parser_result_t http_parser_validate_path(http_parser_t *parser, char const *path)
-{
+static http_parser_result_t http_parser_validate_path(http_parser_t *parser, char const *path) {
 	for (; *path != '\0'; ++path) {
 		if (*path != '/') {
 			return http_parser_result_path;
@@ -353,15 +338,11 @@ static http_parser_result_t http_parser_validate_path(http_parser_t *parser, cha
 	return http_parser_result_ok;
 }
 
-static http_parser_result_t http_parser_parse_version(http_parser_t  *parser,
-						      http_message_t *message)
-{
+static http_parser_result_t http_parser_parse_version(http_parser_t *parser,
+                                                      http_message_t *message) {
 	assert(parser && message);
 
-	uint8_t major;
-	uint8_t minor;
-
-	if (!STRNEQ(LEXEME(parser), "HTTP/", strlen("HTTP/"))) {
+	if (STRNEQ_N(LEXEME(parser), "HTTP/", strlen("HTTP/"))) {
 		return http_parser_result_version;
 	}
 
@@ -371,7 +352,7 @@ static http_parser_result_t http_parser_parse_version(http_parser_t  *parser,
 		return http_parser_result_version;
 	}
 
-	major = CURRENT(parser) - '0';
+	uint8_t const major = CURRENT(parser) - '0';
 	++parser->current;
 
 	if (CURRENT(parser) != '.') {
@@ -383,7 +364,7 @@ static http_parser_result_t http_parser_parse_version(http_parser_t  *parser,
 		return http_parser_result_version;
 	}
 
-	minor = CURRENT(parser) - '0';
+	uint8_t const minor = CURRENT(parser) - '0';
 	++parser->current;
 
 	if (major != HTTP_VERSION_MAJOR || minor != HTTP_VERSION_MINOR) {
@@ -395,15 +376,14 @@ static http_parser_result_t http_parser_parse_version(http_parser_t  *parser,
 	return http_parser_result_ok;
 }
 
-static http_parser_result_t http_parser_parse_status_code(http_parser_t	  *parser,
-							  http_response_t *response)
-{
+static http_parser_result_t http_parser_parse_status_code(http_parser_t *parser,
+                                                          http_response_t *response) {
 	assert(parser && response);
 
-	size_t i = 0;
-	char   status[3 + 1];
+	size_t i;
+	char status[3 + 1];
 
-	for (i = 0; i < 3 && !IS_EOF(parser); ++i) {
+	for (i = 0; i < 3 && NOT_EOF(parser); ++i) {
 		if (!IS_DIGIT(CURRENT(parser))) {
 			return http_parser_result_status;
 		}
@@ -416,22 +396,19 @@ static http_parser_result_t http_parser_parse_status_code(http_parser_t	  *parse
 
 	response->status = atoi(status);
 
-	if (!http_status_to_string(response->status)) {
+	if (http_status_to_string(response->status) == NULL) {
 		return http_parser_result_status_invalid;
 	}
 
 	return http_parser_result_ok;
 }
 
-static http_parser_result_t _http_parser_parse_message(http_parser_t  *parser,
-						       http_message_t *message)
-{
+static http_parser_result_t _http_parser_parse_message(http_parser_t *parser,
+                                                       http_message_t *message) {
 	assert(parser && message);
 
-	http_parser_result_t result;
-
 	http_message_init(message);
-	result = http_parser_parse_headers(parser, message);
+	http_parser_result_t result = http_parser_parse_headers(parser, message);
 	if (result != http_parser_result_ok) {
 		return result;
 	}
@@ -444,24 +421,20 @@ static http_parser_result_t _http_parser_parse_message(http_parser_t  *parser,
 	return http_parser_result_ok;
 }
 
-http_parser_result_t http_parser_parse_message(http_parser_t *parser, void *message)
-{
-	return _http_parser_parse_message(parser, (http_message_t *)message);
+http_parser_result_t http_parser_parse_message(http_parser_t *parser, void *message) {
+	return _http_parser_parse_message(parser, (http_message_t *) message);
 }
 
-static http_parser_result_t http_parser_parse_header(http_parser_t *parser, http_message_t *message)
-{
+static http_parser_result_t http_parser_parse_header(http_parser_t *parser, http_message_t *message) {
 	assert(parser && message);
 
-	char const *key;
-	size_t	    key_len = 0;
-	char const *value;
-	size_t	    value_len = 0;
+	size_t key_len = 0;
+	size_t value_len = 0;
 
 	SKIP_WHITESPACE(parser);
 
-	key = LEXEME(parser);
-	while (!IS_EOF(parser) && IS_HEADER_KEY(CURRENT(parser))) {
+	char const *key = LEXEME(parser);
+	while (NOT_EOF(parser) && IS_HEADER_KEY(CURRENT(parser))) {
 		++parser->current;
 		++key_len;
 	}
@@ -473,11 +446,11 @@ static http_parser_result_t http_parser_parse_header(http_parser_t *parser, http
 	++parser->current;
 	SKIP_WHITESPACE(parser);
 
-	value = LEXEME(parser);
-	while (!IS_EOF(parser)) {
+	char const *value = LEXEME(parser);
+	while (NOT_EOF(parser)) {
 		if (CURRENT(parser) == LF) {
 			break;
-		} else if (STRNEQ(LEXEME(parser), CRLF, strlen(CRLF))) {
+		} else if (STREQ_N(LEXEME(parser), CRLF, strlen(CRLF))) {
 			break;
 		}
 
@@ -506,17 +479,16 @@ static http_parser_result_t http_parser_parse_header(http_parser_t *parser, http
 	return http_parser_result_ok;
 }
 
-static http_parser_result_t http_parser_parse_headers(http_parser_t  *parser,
-						      http_message_t *message)
-{
+static http_parser_result_t http_parser_parse_headers(http_parser_t *parser,
+                                                      http_message_t *message) {
 	assert(parser && message);
 
 	http_parser_result_t result;
 
-	while (!IS_EOF(parser)) {
+	while (NOT_EOF(parser)) {
 		if (CURRENT(parser) == LF) {
 			break;
-		} else if (STRNEQ(LEXEME(parser), CRLF, strlen(CRLF))) {
+		} else if (STREQ_N(LEXEME(parser), CRLF, strlen(CRLF))) {
 			break;
 		}
 
@@ -537,14 +509,13 @@ static http_parser_result_t http_parser_parse_headers(http_parser_t  *parser,
 	return http_parser_result_ok;
 }
 
-static http_parser_result_t http_parser_parse_content(http_parser_t  *parser,
-						      http_message_t *message)
-{
+static http_parser_result_t http_parser_parse_content(http_parser_t *parser,
+                                                      http_message_t *message) {
 	assert(parser && message);
-	size_t	    content_length;
+	size_t content_length;
 	char const *content = http_message_header_get(message, HTTP_CONTENT_LENGTH);
 
-	if (!content) {
+	if (content == NULL) {
 		return http_parser_result_ok;
 	}
 
@@ -554,7 +525,7 @@ static http_parser_result_t http_parser_parse_content(http_parser_t  *parser,
 		return http_parser_result_content;
 	}
 
-	http_message_content_set_n(message, (uint8_t const *)LEXEME(parser), content_length);
+	http_message_content_set_n(message, (uint8_t const *) LEXEME(parser), content_length);
 
 	parser->current += content_length;
 

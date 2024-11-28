@@ -7,16 +7,15 @@
 
 #include "webserver.h"
 
-int main(int argc, char **argv)
-{
-	char working_dir[PATH_MAX];
+int main(int const argc, char **argv) {
+	char working_dir[PATH_MAX + 1];
 
 	webserver_t server;
-	char const *ip	 = "127.0.0.1";
+	char const *ip = "127.0.0.1";
 	char const *port = "1337";
 
 	if (argc >= 3) {
-		ip   = argv[1];
+		ip = argv[1];
 		port = argv[2];
 	}
 
@@ -24,12 +23,12 @@ int main(int argc, char **argv)
 		strncpy(working_dir, argv[3], PATH_MAX);
 	}
 
-	if (!getcwd(working_dir, PATH_MAX)) {
+	if (getcwd(working_dir, PATH_MAX) == NULL) {
 		printf("%s\n", strerror(errno));
 		return 1;
-	} else {
-		strncat(working_dir, "/root", PATH_MAX);
 	}
+
+	strncat(working_dir, "/root", PATH_MAX);
 
 	if (!webserver_init(&server, ip, port, working_dir)) {
 		printf("%s\n", strerror(errno));
