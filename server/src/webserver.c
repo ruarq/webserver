@@ -11,7 +11,6 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <sys/time.h>
 #include <http/parser.h>
 
 void response_init(response_t *response)
@@ -133,6 +132,7 @@ void webserver_run(webserver_t *server)
 		for (size_t i = 0; i < server->response_count; ++i) {
 			response = webserver_response_pop(server);
 			webserver_respond(response.client, response.response);
+			webserver_client_remove(server, response.client);
 			response_deinit(&response);
 		}
 
@@ -168,8 +168,8 @@ void webserver_run(webserver_t *server)
 			struct pollfd const *pfd = &server->client[i];
 
 			if (pfd->revents & POLLHUP) {
-				printf("===== CLOSING CONN (%zu) =====\n", i);
-				webserver_client_remove(server, pfd->fd);
+				printf("===== CLOSING CONN (%d) =====\n", pfd->fd);
+				webserver_client_remove(server, i);
 			} else if (pfd->revents & POLLIN) {
 				webserver_client_receive(server, i);
 
@@ -178,8 +178,6 @@ void webserver_run(webserver_t *server)
 				}
 			}
 		}
-
-		sleep(1);
 	}
 }
 
@@ -226,7 +224,6 @@ void webserver_client_remove(webserver_t *server, int const client)
 	for (size_t i = 0; i < server->client_count; ++i) {
 		if (server->client[i].fd == client) {
 			close(client);
-			shutdown(client, SHUT_RDWR);
 			free(server->buffer[i]);
 			server->client[i] = server->client[server->client_count - 1];
 			server->buffer[i] = server->buffer[server->client_count - 1];
@@ -242,6 +239,7 @@ void webserver_client_receive(webserver_t *server, size_t const client_index)
 	char const *buf		 = webserver_receive(fd);
 	char	   *msg		 = server->buffer[client_index];
 	size_t	    required_len = 0;
+
 	if (msg) {
 		required_len += strlen(msg);
 	}
@@ -252,7 +250,9 @@ void webserver_client_receive(webserver_t *server, size_t const client_index)
 
 	required_len += strlen(buf);
 
-	msg = realloc(msg, required_len + 1);
+	size_t const old_len = msg ? strlen(msg) : 0;
+	msg		     = realloc(msg, required_len + 1);
+	memset(msg + old_len, '\0', required_len - old_len);
 	strcat(msg, buf);
 	server->buffer[client_index] = msg;
 }
@@ -304,7 +304,7 @@ http_response_t *webserver_http_response_create(webserver_t const *server)
 	return response;
 }
 
-void webserver_respond(int const client, http_response_t *response)
+void webserver_respond(int const client, http_response_t const *response)
 {
 	char	    *send_buf	   = http_response_to_string(response);
 	size_t const bytes_to_send = strlen(send_buf);
@@ -377,16 +377,19 @@ bool webserver_request_handle(webserver_t *server, size_t const client_index)
 		}
 	}
 
+	// There is remaining data in the buffer
+	/*
 	if (*buffer != '\0') {
 		size_t const remain_len = strlen(buffer);
 		char	    *remain_buf = calloc(remain_len + 1, sizeof(char));
 		strcpy(remain_buf, buffer);
+		printf("COPIED %zu bytes: %s\n", strlen(buffer), buffer);
 		free(server->buffer[client_index]);
 		server->buffer[client_index] = remain_buf;
-	} else {
-		free(server->buffer[client_index]);
-		server->buffer[client_index] = NULL;
-	}
+	} else */
+
+	free(server->buffer[client_index]);
+	server->buffer[client_index] = NULL;
 
 	return true;
 }
@@ -413,14 +416,12 @@ bool webserver_message_is_ready(webserver_t const *server, size_t const client_i
 }
 
 void webserver_http_request_handle_get(webserver_t *server, int const client,
-				       http_request_t *request)
+				       http_request_t const *request)
 {
 	assert(server && request);
 
 	response_t response;
 	char	  *content = webserver_load_resource(server, request->path);
-
-	printf("DEBUG: %s\n", content);
 
 	response.client	  = client;
 	response.response = webserver_http_response_create(server);

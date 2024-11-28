@@ -39,6 +39,7 @@ typedef struct {
 
 	struct pollfd client[WEBSERVER_CLIENT_COUNT_MAX];
 	char	     *buffer[WEBSERVER_CLIENT_COUNT_MAX];
+	bool	      client_active[WEBSERVER_CLIENT_COUNT_MAX];
 	size_t	      client_count;
 
 	response_t response[WEBSERVER_RESPONSE_COUNT_MAX];
@@ -71,13 +72,14 @@ void webserver_http_response_prepare(webserver_t const *server, http_response_t 
 
 http_response_t *webserver_http_response_create(webserver_t const *server);
 
-void webserver_respond(int client, http_response_t *response);
+void webserver_respond(int client, http_response_t const *response);
 
 bool webserver_request_handle(webserver_t *server, size_t client_index);
 
 bool webserver_message_is_ready(webserver_t const *server, size_t client_index);
 
-void webserver_http_request_handle_get(webserver_t *server, int client, http_request_t *request);
+void webserver_http_request_handle_get(webserver_t *server, int client,
+				       http_request_t const *request);
 
 void webserver_http_request_handle_put(webserver_t *server, int client,
 				       http_request_t const *request);
