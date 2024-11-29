@@ -21,6 +21,7 @@ void response_init(response_t *response)
 
 void response_deinit(response_t const *response)
 {
+	http_response_deinit(response->response);
 	free(response->response);
 }
 
@@ -235,10 +236,10 @@ void webserver_client_remove(webserver_t *server, int const client)
 
 void webserver_client_receive(webserver_t *server, size_t const client_index)
 {
-	int const   fd		 = server->client[client_index].fd;
-	char const *buf		 = webserver_receive(fd);
-	char	   *msg		 = server->buffer[client_index];
-	size_t	    required_len = 0;
+	int const fd	       = server->client[client_index].fd;
+	char	 *buf	       = webserver_receive(fd);
+	char	 *msg	       = server->buffer[client_index];
+	size_t	  required_len = 0;
 
 	if (msg) {
 		required_len += strlen(msg);
@@ -255,6 +256,8 @@ void webserver_client_receive(webserver_t *server, size_t const client_index)
 	memset(msg + old_len, '\0', required_len - old_len);
 	strcat(msg, buf);
 	server->buffer[client_index] = msg;
+
+	free(buf);
 }
 
 char *webserver_receive(int const client)
@@ -559,6 +562,11 @@ char *webserver_load_resource(webserver_t const *server, char const *path)
 		buf = calloc(4, sizeof(char));
 		strcpy(buf, "Baz");
 		return buf;
+	}
+
+	// simple alias "/" for "/index.html"
+	if (strcmp(path, "/") == 0) {
+		path = "/index.html";
 	}
 
 	char *full_path = webserver_full_path(server, path);
